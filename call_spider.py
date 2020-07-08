@@ -6,6 +6,5 @@ def call_juejin_spider():
     t.login()
 
 
-# TEST CODE
 if __name__ == '__main__':
     call_juejin_spider()
