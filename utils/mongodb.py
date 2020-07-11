@@ -1,5 +1,6 @@
 import pymongo
 import user_data.user_data
+import threading
 
 class  Pipeline(object):
     pip=None
@@ -7,6 +8,8 @@ class  Pipeline(object):
         if cls.pip == None:
             cls.pip ==object.__new__()
             return cls.pip
+    staticmethod
+
 
     def _init_(self):
         #连接数据库
@@ -18,11 +21,16 @@ class  Pipeline(object):
         self.db = client[user_data['MONGO_Name']]
         print(self.db)
 
+    def add_data(self,item,coll):
+            added = threading.Thread(target=self._inser_one,args=(item ,coll))
 
     def _inser_one(self,item,coll):
         #item 数据 coll插入表名
         _coll=self.db[user_data[coll]]
-        state=_coll.insert_one(item)
+        #添加线程
+        _theading = threading.Thread(target=_coll.insert_one,args=(item,))
+        #开始线程
+        _theading.start()
 
         return item
 
