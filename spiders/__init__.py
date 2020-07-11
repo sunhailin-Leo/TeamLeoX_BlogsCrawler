@@ -1,8 +1,8 @@
 from random import choice
-from typing import AbstractSet, Optional, Dict, List, Tuple, Union
+from typing import Dict, List, Tuple, Union, AbstractSet
 
 import requests
-from requests import Response, Session
+from requests import Response
 from requests_toolbelt import MultipartEncoder
 
 
