@@ -1,17 +1,23 @@
-from datetime import datetime
+import time
 from typing import Dict, List, Tuple, Optional
 
+from config import LOG_LEVEL
+from utils.logger_utils import LogManager
+from utils.time_utils import datetime_str_change_fmt
+from utils.exception_utils import LoginException, ParseDataException
 from spiders import BaseSpider, BaseSpiderParseMethodType, CookieUtils
 from utils.str_utils import check_is_phone_number, check_is_email_address
-from utils.logger_utils import LogManager
 
-logger = LogManager(__name__, ).get_logger_and_add_handlers(formatter_template=5, log_level_int=10)
+logger = LogManager(__name__).get_logger_and_add_handlers(
+    formatter_template=5, log_level_int=LOG_LEVEL
+)
 
 
 class JuejinSpider(BaseSpider):
     def __init__(self, username: str, password: str):
         self._main_url = "https://juejin.im/auth/type"
         self._blogs_url = "https://timeline-merger-ms.juejin.im/v1/get_entry_by_self"
+        self._like_blogs_url = "https://user-like-wrapper-ms.juejin.im/v1/user"
 
         self._login_username = username
         self._login_password = password
@@ -24,6 +30,8 @@ class JuejinSpider(BaseSpider):
         self._response_data = None
 
         self._blogs_data: List = []
+        self._like_blogs_data: List = []
+        self._like_blogs_total_page: int = 0
 
         super().__init__()
 
@@ -54,6 +62,7 @@ class JuejinSpider(BaseSpider):
             self._parse_login_data()
         elif method == BaseSpiderParseMethodType.PersonalBlogs:
             self._parse_personal_blogs()
+            self._parse_personal_like_blogs()
 
     def login(self):
         login_url, login_data = self._check_username()
@@ -70,7 +79,7 @@ class JuejinSpider(BaseSpider):
             self.parse_data_with_method(method=BaseSpiderParseMethodType.LoginResult)
         else:
             logger.error("登录失败!")
-            raise ValueError("登录失败!")
+            raise LoginException()
 
     def _parse_login_data(self):
         # 公共参数
@@ -127,10 +136,10 @@ class JuejinSpider(BaseSpider):
                 entry_list = self._response_data["d"]["entrylist"]
                 if len(entry_list) > 0:
                     for personal_blog in entry_list:
-                        fmt_time = datetime.strptime(
-                            personal_blog["createdAt"], "%Y-%m-%dT%H:%M:%S.%fZ"
+                        blog_create_time = datetime_str_change_fmt(
+                            time_str=personal_blog["createdAt"],
+                            prev_fmt="%Y-%m-%dT%H:%M:%S.%fZ",
                         )
-                        blog_create_time = fmt_time.strftime("%Y-%m-%d %H:%M:%S")
 
                         blog_data: Dict = {
                             "blogId": personal_blog["objectId"],
@@ -143,11 +152,68 @@ class JuejinSpider(BaseSpider):
                         next_page_variable = personal_blog["verifyCreatedAt"]
 
                 if self._response_data["d"]["total"] > 20:
+                    time.sleep(0.5)
                     self._parse_personal_blogs(next_params=next_page_variable)
                 else:
                     # TODO 推送数据
                     logger.debug(self._blogs_data)
-                    pass
+                    logger.info("获取个人博客数据成功!")
         else:
             logger.error("查询个人博客失败!")
-            raise ValueError("查询个人博客失败!")
+            raise LoginException()
+
+    def _parse_personal_like_blogs(self, page_no: int = 0):
+        like_blogs_url: str = f"{self._like_blogs_url}/{self._login_uid}/like/entry?page={page_no}&pageSize=20"
+        self._common_headers.update(
+            {
+                "X-Juejin-Client": str(self._login_client_id),
+                "X-Juejin-Src": "web",
+                "X-Juejin-Token": self._login_token,
+                "X-Juejin-Uid": self._login_uid,
+            }
+        )
+        response = self.make_request(url=like_blogs_url, headers=self._common_headers)
+        if response.content.decode() != "":
+            self._response_data = response.json()
+            if (
+                self._response_data is not None
+                and self._response_data["m"] == "success"
+            ):
+                logger.info(f"当前正在获取第{page_no + 1}页的数据!")
+                if page_no == 0:
+                    total_count = self._response_data["d"]["total"]
+                    total_pages = total_count // 20
+                    rest_count = total_count % 20
+                    if rest_count != 0:
+                        total_pages += 1
+                    self._like_blogs_total_page = total_pages
+
+                entry_list = self._response_data["d"]["entryList"]
+                if len(entry_list) > 0:
+                    for entry_data in entry_list:
+                        if entry_data is None:
+                            continue
+                        blog_data: Dict = {
+                            "blogId": entry_data["objectId"],
+                            "blogTitle": entry_data["title"],
+                            "blogHref": entry_data["originalUrl"],
+                            "blogViewers": entry_data["viewsCount"],
+                            "blogCreateTime": datetime_str_change_fmt(
+                                time_str=entry_data["createdAt"],
+                                prev_fmt="%Y-%m-%dT%H:%M:%S.%fZ",
+                            ),
+                        }
+                        self._like_blogs_data.append(blog_data)
+
+                page_no += 1
+                if page_no <= self._like_blogs_total_page:
+                    # TODO 后面考虑多线程进行任务拆分，并发获取数据
+                    time.sleep(0.5)
+                    self._parse_personal_like_blogs(page_no=page_no)
+                else:
+                    # TODO 推送数据
+                    logger.debug(self._like_blogs_data)
+                    logger.info("获取个人点赞博客成功!")
+        else:
+            logger.error("查询个人点赞博客失败!")
+            raise ParseDataException()

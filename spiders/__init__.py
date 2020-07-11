@@ -2,7 +2,8 @@ from random import choice
 from typing import AbstractSet, Optional, Dict, List, Tuple, Union
 
 import requests
-from requests import Response
+from requests import Response, Session
+from requests_toolbelt import MultipartEncoder
 
 
 class UserAgentPool:
@@ -32,6 +33,7 @@ class CookieUtils:
 
 class BaseSpider:
     def __init__(self):
+        self._session = requests.Session()
         self._common_headers: Dict = {"User-Agent": UserAgentPool().get_user_agent()}
 
     @staticmethod
@@ -40,10 +42,26 @@ class BaseSpider:
         headers: dict,
         *,
         method: str = "GET",
-        data: Union[str, dict, None] = None,
+        data: Union[str, dict, MultipartEncoder, None] = None,
         json: Union[str, dict, None] = None
     ) -> Response:
         return requests.request(method=method, url=url, headers=headers, data=data, json=json)
+
+    @staticmethod
+    def make_request_with_session(
+        session,
+        url: str,
+        headers: dict,
+        *,
+        method: str = "GET",
+        data: Union[str, dict, MultipartEncoder, None] = None,
+        json: Union[str, dict, None] = None
+    ) -> Response:
+        return session.request(method=method, url=url, headers=headers, data=data, json=json)
+
+    @staticmethod
+    def get_default_headers() -> Dict:
+        return {"User-Agent": UserAgentPool().get_user_agent()}
 
     def login(self):
         raise NotImplemented("登录方法必须实现!")
@@ -58,5 +76,3 @@ class BaseSpider:
 class BaseSpiderParseMethodType:
     LoginResult: str = "Login"
     PersonalBlogs: str = "PersonalBlogs"
-
-
