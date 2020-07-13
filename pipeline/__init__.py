@@ -5,7 +5,7 @@ from typing import Dict
 # MongoDB 配置，根据用户实际进行配置
 # username 和 password 没有的不要设置为空字符串
 MongoDBConfig: Dict = {
-    "host": "localhost",
+    "host": "127.0.0.1",
     "port": 27017,
     "database": "TeamLeoX",
     "username": None,
@@ -15,4 +15,9 @@ MongoDBConfig: Dict = {
 }
 
 # Redis 配置，根据用户实际进行修改配置
-RedisConfig: Dict = {}
+RedisConfig: Dict = {
+    "host": "127.0.0.1",
+    "port": 6379,
+    "password": None,
+    "database": "0",
+}
