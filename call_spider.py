@@ -29,7 +29,21 @@ def call_csdn_spider():
 
 
 if __name__ == '__main__':
+    import time
+
+    # TODO LIST
+    """
+    1、将目前这个 TODO LIST 之外的 TODO 工作完成。
+    2、编写一个任务接收器。
+    3、利用多进程去启动下面的爬虫，而不使用线程。因为会导致线程嵌套，给 debug 带来影响。
+    4、设计一个高层的 API 将整个爬虫的调用更加简单。
+    5、利用 Flask 或者 fastapi 设计 Restful 接口对接前端进行数据查询。
+    6、完善测试用例
+    """
+
     call_juejin_spider()
-    call_zhihu_spider()
-    call_segmentfault_spider()
-    call_csdn_spider()
+    # call_zhihu_spider()
+    # call_segmentfault_spider()
+    # call_csdn_spider()
+    while True:
+        time.sleep(2)

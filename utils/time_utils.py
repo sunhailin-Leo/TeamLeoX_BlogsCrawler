@@ -1,5 +1,5 @@
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 
 def timestamp_to_datetime_str(timestamp: int, fmt: str = "%Y-%m-%d %H:%M:%S") -> str:
@@ -26,7 +26,14 @@ def datetime_str_change_fmt(
 
 
 def handle_different_time_str(time_str: str) -> str:
-    if "今天" in time_str:
+    if "分钟" in time_str:
+        # 24 分钟前
+        minutes: int = int(time_str.replace(" 分钟前", ""))
+        now_time = datetime.now()
+        delta = timedelta(minutes=minutes)
+        now_time_delta = now_time - delta
+        return now_time_delta.strftime("%Y-%m-%d")
+    elif "今天" in time_str:
         return datetime_str_change_fmt(
             time_str=f"{datetime.now().strftime('%Y-%m-%d')} {time_str.split(' ')[-1]}",
             prev_fmt="%Y-%m-%d %H:%M"

@@ -102,6 +102,9 @@ class CSDNSpider(BaseSpider):
         self._login_username = username
         self._login_password = password
 
+        self._spider_name: str = f"csdn:{self._login_username}"
+        self._login_cookies: Optional[str] = None
+
         self._blog_main_url: str = "https://blog.csdn.net"
         self._login_main_url: str = "https://passport.csdn.net"
         self._personal_main_url: str = "https://me.csdn.net"
@@ -122,7 +125,7 @@ class CSDNSpider(BaseSpider):
         self._request_headers = self.get_default_headers()
         self._request_headers.update({"content-type": "application/json"})
 
-        self._login_cookies: Optional[str] = None
+        self._login_cookies = self.get_cookies(self._spider_name)
         self._username: Optional[str] = None
 
         self._personal_collection_ids: List = []
@@ -137,60 +140,66 @@ class CSDNSpider(BaseSpider):
         if method == BaseSpiderParseMethodType.LoginResult:
             self._parse_login_data()
         elif method == BaseSpiderParseMethodType.PersonalBlogs:
-            # self._parse_personal_blogs()
+            self._parse_personal_blogs()
             self._parse_personal_like_blogs()
+        elif method == BaseSpiderParseMethodType.Finish:
+            self.send_data()
 
     def login(self):
-        hvc_response = self.make_request_with_session(
-            session=self._session,
-            url=f"{self._login_main_url}/v1/api/riskControl/checkHVC",
-            headers=self._request_headers,
-            json=self._check_hvc_data,
-            method="POST",
-        )
-        if hvc_response.status_code != 200:
-            logger.error("登录 --> 登录预认证失败!")
-            raise LoginException()
+        if self._login_cookies is None:
+            hvc_response = self.make_request_with_session(
+                session=self._session,
+                url=f"{self._login_main_url}/v1/api/riskControl/checkHVC",
+                headers=self._request_headers,
+                json=self._check_hvc_data,
+                method="POST",
+            )
+            if hvc_response.status_code != 200:
+                logger.error("登录 --> 登录预认证失败!")
+                raise LoginException()
 
-        if check_is_json(data=hvc_response.content.decode()) is not True:
-            logger.error("登录 --> 登录预认证数据返回失败!")
-            raise LoginException()
+            if check_is_json(data=hvc_response.content.decode()) is not True:
+                logger.error("登录 --> 登录预认证数据返回失败!")
+                raise LoginException()
 
-        hvc_json_response = hvc_response.json()
-        if hvc_json_response["message"] != "success":
-            logger.error(f"登录 --> 登录预认证失败!返回结果: {hvc_json_response}")
-            raise LoginException()
-        logger.debug(f"预认证返回结果: {hvc_json_response}")
+            hvc_json_response = hvc_response.json()
+            if hvc_json_response["message"] != "success":
+                logger.error(f"登录 --> 登录预认证失败!返回结果: {hvc_json_response}")
+                raise LoginException()
+            logger.debug(f"预认证返回结果: {hvc_json_response}")
 
-        login_response = self.make_request_with_session(
-            session=self._session,
-            url=f"{self._login_main_url}/v1/register/pc/login/doLogin",
-            headers=self._request_headers,
-            json=self._login_data,
-            method="POST",
-        )
+            login_response = self.make_request_with_session(
+                session=self._session,
+                url=f"{self._login_main_url}/v1/register/pc/login/doLogin",
+                headers=self._request_headers,
+                json=self._login_data,
+                method="POST",
+            )
+            if login_response.status_code != 200:
+                logger.error("登录 --> 登录请求失败!")
+                raise LoginException()
 
-        if login_response.status_code != 200:
-            logger.error("登录 --> 登录请求失败!")
-            raise LoginException()
+            if check_is_json(data=login_response.content.decode()) is not True:
+                logger.error("登录 --> 登录请求返回失败!")
+                raise LoginException()
 
-        if check_is_json(data=login_response.content.decode()) is not True:
-            logger.error("登录 --> 登录请求返回失败!")
-            raise LoginException()
-
-        login_json_response = login_response.json()
-        if login_json_response["message"] == "success":
-            logger.debug(f"登录返回结果: {login_json_response}")
-            self._username = login_json_response["username"]
-            logger.info(f"登录 --> 登录成功!当前用户名: {self._login_username}")
-            self._login_cookies = CookieUtils(
-                cookie_list=login_response.cookies.items()
-            ).to_str()
-            self._request_headers.update(Cookie=self._login_cookies)
-            self.parse_data_with_method(method=BaseSpiderParseMethodType.LoginResult)
+            login_json_response = login_response.json()
+            if login_json_response["message"] == "success":
+                logger.debug(f"登录返回结果: {login_json_response}")
+                self._username = login_json_response["username"]
+                logger.info(f"登录 --> 登录成功!当前用户名: {self._login_username}")
+                self._login_cookies = CookieUtils(
+                    cookie_list=login_response.cookies.items()
+                ).to_str()
+                self.set_cookies(spider_name=self._spider_name, cookies=self._login_cookies)
+                self._request_headers.update(Cookie=self._login_cookies)
+                self.parse_data_with_method(method=BaseSpiderParseMethodType.LoginResult)
+            else:
+                logger.error(f"登录 --> 登录异常!返回结果: {login_json_response}")
+                raise LoginException()
         else:
-            logger.error(f"登录 --> 登录异常!返回结果: {login_json_response}")
-            raise LoginException()
+            self._request_headers.update(Cookie=self._login_cookies)
+            self.parse_data_with_method(method=BaseSpiderParseMethodType.PersonalBlogs)
 
     def _parse_login_data(self):
         personal_data_url: str = f"{self._personal_main_url}/api/user/show"
@@ -264,8 +273,9 @@ class CSDNSpider(BaseSpider):
                     self._personal_collection_ids.append(collection["ID"])
             personal_data["likeBlogs"] = collection_count
 
-        # TODO 推送数据
+        # 写入数据
         logger.debug(personal_data)
+        self.data_model.set_personal_data(data=personal_data)
         self.parse_data_with_method(method=BaseSpiderParseMethodType.PersonalBlogs)
 
     def _parse_personal_blogs(self, page_no: int = 0):
@@ -346,8 +356,8 @@ class CSDNSpider(BaseSpider):
                 page_no += 1
                 self._parse_personal_blogs(page_no=page_no)
             else:
-                # TODO 推送数据
                 logger.debug(self._blogs_data)
+                self.data_model.set_personal_blogs_data(data=self._blogs_data)
                 logger.info("获取个人博客数据成功!")
         else:
             logger.info("获取个人博客数据成功!个人博客数据为空!")
@@ -396,6 +406,34 @@ class CSDNSpider(BaseSpider):
                     logger.error("获取个人收藏博客失败!")
                     break
 
-            # TODO 推送数据
             logger.debug(self._like_blogs_data)
+            self.data_model.set_personal_like_blogs_data(data=self._like_blogs_data)
             logger.info("获取个人收藏博客成功!")
+        # 任务末尾
+        self.parse_data_with_method(method=BaseSpiderParseMethodType.Finish)
+
+    def _test_cookies(self, cookies: Optional[str] = None) -> bool:
+        test_url: str = f"{self._personal_main_url}/api/favorite/folderList"
+        test_request_headers: Dict = self.get_default_headers()
+        test_request_cookies = self._login_cookies
+        if cookies is not None:
+            test_request_cookies = cookies
+        test_request_headers.update(Cookie=test_request_cookies)
+        test_response = self.make_request(
+            url=test_url, headers=test_request_headers,
+        )
+        if (
+            test_response.status_code != 200
+            or check_is_json(test_response.content.decode()) is not True
+        ):
+            logger.error(f"当前 CSDN 账号登录状态: 已退出!")
+            self._async_task.remove_async_scheduler(job_id=self._spider_name)
+            return False
+
+        test_json_response = test_response.json()
+        if test_json_response["code"] == 200:
+            logger.info(f"当前 CSDN 账号为: {self._login_username}, 状态: 已登录")
+            return True
+        else:
+            logger.error(f"当前 CSDN 账号登录状态: 已退出!")
+            return False

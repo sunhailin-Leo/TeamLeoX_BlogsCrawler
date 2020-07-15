@@ -20,10 +20,14 @@ class SegmentfaultSpider(BaseSpider):
         self._main_url = "https://segmentfault.com"
         self._login_username = username
         self._login_password = password
-        super().__init__()
+        self._spider_name: str = f"segmentfault:{self._login_username}"
 
         self._cookies: Optional[str] = None
-        self._user_url: Optional[str] = None
+
+        super().__init__()
+
+        self._cookies = self.get_cookies(spider_name=self._spider_name)
+        self._user_url: Optional[str] = self.get_data(spider_name=f"{self._spider_name}:user_url")
         self._blogs_data: List = []
 
     @staticmethod
@@ -39,7 +43,7 @@ class SegmentfaultSpider(BaseSpider):
 
             if filter_list:
                 for m, n in filter_list:
-                    ret = ret[: int(m)] + ret[int(n) :]
+                    ret = ret[: int(m)] + ret[int(n):]
             if len(ret) == 32:
                 return ret
             else:
@@ -51,6 +55,7 @@ class SegmentfaultSpider(BaseSpider):
         response = self.make_request(url=url, headers=self._common_headers)
         if response.status_code == 200:
             self._cookies = CookieUtils(cookie_list=response.cookies.items()).to_str()
+            self.set_cookies(spider_name=self._spider_name, cookies=self._cookies)
             return self._parse_token(html_str=response.content.decode())
         else:
             return None
@@ -60,56 +65,73 @@ class SegmentfaultSpider(BaseSpider):
             self._parse_login_data()
         elif method == BaseSpiderParseMethodType.PersonalBlogs:
             self._parse_personal_blogs()
+        elif method == BaseSpiderParseMethodType.Finish:
+            self.send_data()
 
     def login(self):
-        token = self._get_token(url=self._main_url)
-        if token is None:
-            raise LoginException()
-        login_params: str = f"_={token}"
-        login_url = f"{self._main_url}/api/user/login?{login_params}"
+        if self._cookies is None:
+            token = self._get_token(url=self._main_url)
+            if token is None:
+                raise LoginException()
+            login_params: str = f"_={token}"
+            login_url = f"{self._main_url}/api/user/login?{login_params}"
 
-        # 思否通过判断 referer 结尾的斜杠登录跳转(所以后面会多一个斜杠拼接)
-        self._common_headers.update(
-            {
-                "cookie": self._cookies,
-                "origin": self._main_url,
-                "referer": self._main_url + "/",
-                "x-requested-with": "XMLHttpRequest",
-            }
-        )
-        response = self.make_request(
-            url=login_url,
-            headers=self._common_headers,
-            data={
-                "remember": "1",
-                "username": self._login_username,
-                "password": self._login_password,
-            },
-            method="POST",
-        )
-        if response.status_code == 200:
-            main_response = self.make_request(
-                url=self._main_url, headers=self._common_headers
+            # 思否通过判断 referer 结尾的斜杠登录跳转(所以后面会多一个斜杠拼接)
+            self._common_headers.update(
+                {
+                    "cookie": self._cookies,
+                    "origin": self._main_url,
+                    "referer": self._main_url + "/",
+                    "x-requested-with": "XMLHttpRequest",
+                }
+            )
+            response = self.make_request(
+                url=login_url,
+                headers=self._common_headers,
+                data={
+                    "remember": "1",
+                    "username": self._login_username,
+                    "password": self._login_password,
+                },
+                method="POST",
             )
             if response.status_code == 200:
-                selector = etree.HTML(main_response.content.decode())
-                user_href = selector.xpath(
-                    "//a[@class='avatar-* dropdownBtn user-avatar']/@href"
+                main_response = self.make_request(
+                    url=self._main_url, headers=self._common_headers
                 )
-                if len(user_href) > 0:
-                    logger.info("登录成功!")
-                    self._user_url = f"{self._main_url}{user_href[0]}"
-                    self.parse_data_with_method(
-                        method=BaseSpiderParseMethodType.LoginResult
+                if response.status_code == 200:
+                    selector = etree.HTML(main_response.content.decode())
+                    user_href = selector.xpath(
+                        "//a[@class='avatar-* dropdownBtn user-avatar']/@href"
                     )
+                    if len(user_href) > 0:
+                        logger.info("登录成功!")
+                        self._user_url = f"{self._main_url}{user_href[0]}"
+                        self.set_data(
+                            spider_name=f"{self._spider_name}:user_url",
+                            data=self._user_url,
+                        )
+                        self.parse_data_with_method(
+                            method=BaseSpiderParseMethodType.LoginResult
+                        )
+                    else:
+                        logger.error("获取个人页面链接失败!")
+                        raise LoginException()
                 else:
-                    logger.error("获取个人页面链接失败!")
                     raise LoginException()
             else:
+                self._cookies = None
                 raise LoginException()
         else:
-            self._cookies = None
-            raise LoginException()
+            self._common_headers.update(
+                {
+                    "cookie": self._cookies,
+                    "origin": self._main_url,
+                    "referer": self._main_url + "/",
+                    "x-requested-with": "XMLHttpRequest",
+                }
+            )
+            self.parse_data_with_method(method=BaseSpiderParseMethodType.PersonalBlogs)
 
     def _parse_login_data(self):
         personal_response = self.make_request(
@@ -147,8 +169,9 @@ class SegmentfaultSpider(BaseSpider):
                     "follower": follower,
                     "likeBlogs": like_blogs,
                 }
-                # TODO 推送数据
                 logger.debug(personal_data)
+                self.data_model.set_personal_data(data=personal_data)
+                logger.info("获取个人主页数据成功!")
                 self.parse_data_with_method(
                     method=BaseSpiderParseMethodType.PersonalBlogs
                 )
@@ -204,12 +227,37 @@ class SegmentfaultSpider(BaseSpider):
                     next_params += 1
                     self._parse_personal_blogs(next_params=next_params)
                 else:
-                    # TODO 推送数据
                     logger.debug(self._blogs_data)
+                    self.data_model.set_personal_blogs_data(data=self._blogs_data)
                     logger.info("获取个人博客数据成功!")
+                # 任务末尾
+                self.parse_data_with_method(method=BaseSpiderParseMethodType.Finish)
             except (IndexError, Exception):
                 logger.error("解析个人博客数据异常!")
                 raise ParseDataException()
         else:
             logger.error("获取个人博客数据失败!")
             raise LoginException()
+
+    def _test_cookies(self, cookies: Optional[str] = None) -> bool:
+        user_url = self.get_data(spider_name=f"{self._spider_name}:user_url")
+        test_user_url: str = f"{user_url}/about"
+        test_request_headers: Dict = self.get_default_headers()
+        test_request_cookies = self._cookies
+        if cookies is not None:
+            test_request_cookies = cookies
+        test_request_headers.update({
+            "cookie": test_request_cookies,
+            "origin": self._main_url,
+            "referer": self._main_url + "/",
+            "x-requested-with": "XMLHttpRequest",
+        })
+        test_response = self.make_request(url=test_user_url, headers=test_request_headers)
+        selector = etree.HTML(test_response.content.decode())
+        title = "".join(selector.xpath("//title/text()"))
+        if "登录" not in title:
+            logger.info(f"当前思否账号为: {self._login_username}, 状态: 已登录")
+            return True
+        logger.error(f"当前思否登录状态: 已退出!")
+        self._async_task.remove_async_scheduler(job_id=self._spider_name)
+        return False

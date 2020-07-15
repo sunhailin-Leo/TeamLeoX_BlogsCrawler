@@ -1,14 +1,15 @@
 from typing import Optional
 
-from redis import Redis, Connection, ConnectionPool
+from redis import Redis, ConnectionPool
 from redis.exceptions import RedisError, ConnectionError
 
+from config import LOG_LEVEL
 from pipeline import RedisConfig
 from utils.logger_utils import LogManager
-from pipeline.decorator import synchronized
+from utils.decorator import synchronized
 
 logger = LogManager(__name__).get_logger_and_add_handlers(
-    formatter_template=5, log_level_int=10
+    formatter_template=5, log_level_int=LOG_LEVEL
 )
 
 
@@ -21,30 +22,37 @@ class RedisPipeline:
             cls.redis_pool = cls._connect_redis()
         return cls.redis_pool
 
+    def __init__(self):
+        pass
+
     @staticmethod
     def _connect_redis() -> Optional[ConnectionPool]:
         pool = ConnectionPool(
-            connection_class=Connection(
-                host=RedisConfig["host"],
-                port=RedisConfig["port"],
-                password=RedisConfig["password"],
-                db=RedisConfig["database"],
-                decode_responses=True,
-            ),
+            host=RedisConfig["host"],
+            port=RedisConfig["port"],
+            password=RedisConfig["password"],
+            db=RedisConfig["database"],
+            decode_responses=True,
         )
         try:
             test_instance = Redis(connection_pool=pool)
-            test_instance.ping()
+            if test_instance.ping() is not True:
+                logger.error("Redis 连接失败!")
+                return None
             logger.info("Redis 连接成功!")
             return pool
         except ConnectionError:
             logger.error("Redis 连接失败!")
             return None
 
-    @staticmethod
-    def get_redis_instance() -> Optional[Redis]:
+
+class RedisPipelineHandler:
+    def __init__(self):
+        self._pool = RedisPipeline()
+
+    def get_redis_instance(self) -> Optional[Redis]:
         try:
-            return Redis(connection_pool=RedisPipeline.redis_pool)
+            return Redis(connection_pool=self._pool)
         except Exception as err:
             logger.error(err)
             return None
@@ -54,8 +62,8 @@ class RedisPipeline:
         key: str,
         value: str,
         *,
-        expire_seconds: Optional[int],
-        expire_milliseconds: Optional[int]
+        expire_seconds: Optional[int] = None,
+        expire_milliseconds: Optional[int] = None,
     ):
         instance = self.get_redis_instance()
         if instance is not None:

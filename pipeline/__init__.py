@@ -7,7 +7,7 @@ from typing import Dict
 MongoDBConfig: Dict = {
     "host": "127.0.0.1",
     "port": 27017,
-    "database": "TeamLeoX",
+    "database": "db_blogs_crawler",
     "username": None,
     "password": None,
     "maxPoolSize": 100,
@@ -18,6 +18,6 @@ MongoDBConfig: Dict = {
 RedisConfig: Dict = {
     "host": "127.0.0.1",
     "port": 6379,
-    "password": None,
+    "password": "",
     "database": "0",
 }

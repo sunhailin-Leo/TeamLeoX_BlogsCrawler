@@ -7,3 +7,6 @@ PyExecJS==1.5.1
 requests==2.21.0
 requests_toolbelt==0.9.1
 Pillow==6.2.1
+redis==3.2.0
+pymongo>=3.7.2
+APScheduler>=3.6.0

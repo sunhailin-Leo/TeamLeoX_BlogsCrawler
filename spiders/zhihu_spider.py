@@ -30,6 +30,9 @@ class ZhiHuSpider(BaseSpider):
         self._login_url: str = f"{self._main_url}/api/v3/oauth/sign_in"
         self._captcha_url: str = f"{self._main_url}/api/v3/oauth/captcha?lang=en"
 
+        self._spider_name: str = f"zhihu:{self._login_username}"
+        self._login_cookies: Optional[str] = None
+
         super().__init__()
 
         self._common_headers.update(
@@ -54,7 +57,7 @@ class ZhiHuSpider(BaseSpider):
             "x-zse-83": "3_2.0",
         }
 
-        self._login_cookies = None
+        self._login_cookies = self.get_cookies(spider_name=self._spider_name)
         self._login_user_info: Optional[Dict] = None
         self._login_user_url_token: str = ""
         self._blogs_data: List = []
@@ -66,6 +69,8 @@ class ZhiHuSpider(BaseSpider):
         elif method == BaseSpiderParseMethodType.PersonalBlogs:
             self._parse_personal_blogs()
             self._parse_personal_collect_blogs()
+        elif method == BaseSpiderParseMethodType.Finish:
+            self.send_data()
 
     def _init_login(self) -> bool:
         """
@@ -106,6 +111,9 @@ class ZhiHuSpider(BaseSpider):
                         "referer": "https://www.zhihu.com/signin",
                         "x-requested-with": "fetch",
                     }
+                    # 这里需要暂停一下, 防止请求过快
+                    time.sleep(2)
+
                     response = self.make_request_with_session(
                         session=self._session,
                         url=self._captcha_url,
@@ -137,70 +145,77 @@ class ZhiHuSpider(BaseSpider):
             return False
 
     def login(self):
-        if self._init_login():
-            grant_type: str = "password"
-            client_id: str = "c3cef7c66a1843f8b3a9e6a1e3160e20"
-            source: str = "com.zhihu.web"
-            timestamp: str = str(int(time.time() * 1000))
-            signature: str = hmac_encrypt_sha1(
-                key=b"d1b964811afb40118a12068ff74a12f4",
-                encrypt_str=f"{grant_type}{client_id}{source}{timestamp}",
-            )
-            post_data: dict = {
-                "client_id": client_id,
-                "grant_type": grant_type,
-                "source": source,
-                "username": self._login_username,
-                "password": self._login_password,
-                "lang": "en",
-                "ref_source": "other_https://www.zhihu.com/signin",
-                "utm_source": "",
-                "captcha": "",
-                "timestamp": timestamp,
-                "signature": signature,
-            }
-            js_code = compile_js(js_str=zhihu_encrypt_js_code)
-            data = js_code.call("encrypt", urlencode(post_data))
-            response = self.make_request_with_session(
-                session=self._session,
-                url=self._login_url,
-                data=data,
-                headers=self._login_headers,
-                method="POST",
-            )
-            if check_is_json(data=response.content.decode()):
-                json_response = response.json()
-                if json_response.get("user_id"):
-                    logger.debug(json_response)
-                    self._login_cookies = json_response["cookie"]
-                    self._session.cookies.update(self._login_cookies)
-                    logger.info(f"登录 --> 登录成功!当前用户:{self._login_username}")
-                    self._login_user_info = {"username": self._login_username}
-                    self._login_user_info.update(json_response)
-                elif json_response.get("error"):
-                    error_code: int = json_response["error"]["code"]
-                    error_msg: str = json_response["error"]["message"]
-                    if error_code == 100005:
-                        logger.error("登录 --> 用户名或密码错误!登录失败!")
-                        raise LoginException()
-                    elif error_code == 120005:
-                        logger.error(f"登录 --> 登录失败!错误信息:{error_code}")
-                        raise LoginException()
-                    else:
-                        logger.error(f"登录 --> 其他错误!错误信息:{error_msg}")
-                        raise LoginException()
+        if self._login_cookies is None:
+            if self._init_login():
+                grant_type: str = "password"
+                client_id: str = "c3cef7c66a1843f8b3a9e6a1e3160e20"
+                source: str = "com.zhihu.web"
+                timestamp: str = str(int(time.time() * 1000))
+                signature: str = hmac_encrypt_sha1(
+                    key=b"d1b964811afb40118a12068ff74a12f4",
+                    encrypt_str=f"{grant_type}{client_id}{source}{timestamp}",
+                )
+                post_data: dict = {
+                    "client_id": client_id,
+                    "grant_type": grant_type,
+                    "source": source,
+                    "username": self._login_username,
+                    "password": self._login_password,
+                    "lang": "en",
+                    "ref_source": "other_https://www.zhihu.com/signin",
+                    "utm_source": "",
+                    "captcha": "",
+                    "timestamp": timestamp,
+                    "signature": signature,
+                }
+                js_code = compile_js(js_str=zhihu_encrypt_js_code)
+                data = js_code.call("encrypt", urlencode(post_data))
+                response = self.make_request_with_session(
+                    session=self._session,
+                    url=self._login_url,
+                    data=data,
+                    headers=self._login_headers,
+                    method="POST",
+                )
+                if check_is_json(data=response.content.decode()):
+                    json_response = response.json()
+                    if json_response.get("user_id"):
+                        logger.debug(json_response)
+                        self._login_cookies = json_response["cookie"]
+                        self._session.cookies.update(self._login_cookies)
+                        logger.info(f"登录 --> 登录成功!当前用户:{self._login_username}")
+                        self._login_user_info = {"username": self._login_username}
+                        self._login_user_info.update(json_response)
+                    elif json_response.get("error"):
+                        error_code: int = json_response["error"]["code"]
+                        error_msg: str = json_response["error"]["message"]
+                        if error_code == 100005:
+                            logger.error("登录 --> 用户名或密码错误!登录失败!")
+                            raise LoginException()
+                        elif error_code == 120005:
+                            logger.error(f"登录 --> 登录失败!错误信息:{error_code}")
+                            raise LoginException()
+                        else:
+                            logger.error(f"登录 --> 其他错误!错误信息:{error_msg}")
+                            raise LoginException()
+                else:
+                    logger.error("登录 --> 获取登录后的用户信息失败!登录失败!")
+                    raise LoginException()
             else:
-                logger.error("登录 --> 获取登录后的用户信息失败!登录失败!")
+                logger.error("登录 --> 失败")
+                raise LoginException()
+
+            if self._login_user_info is not None:
+                self.parse_data_with_method(method=BaseSpiderParseMethodType.LoginResult)
+            else:
+                logger.error("登录 --> 获取用户数据失败!")
                 raise LoginException()
         else:
-            logger.error("登录 --> 失败")
-            raise LoginException()
-
-        if self._login_user_info is not None:
+            # self._session.headers.update(self._common_headers)
+            # self._session.cookies.update(self._login_cookies)
+            self._common_headers.update(Cookie=self._login_cookies)
+            self._login_user_url_token = self.get_data(spider_name=f"{self._spider_name}:token")
             self.parse_data_with_method(method=BaseSpiderParseMethodType.LoginResult)
-        else:
-            logger.error("登录 --> 获取用户数据失败!")
-            raise LoginException()
 
     def _parse_login_data(self):
         include_params: str = "ad_type,available_message_types," \
@@ -214,6 +229,7 @@ class ZhiHuSpider(BaseSpider):
         self._personal_url: str = f"{self._main_url}/api/v4/me?include={include_params}"
         # 这个地方很重要
         request_cookie: str = CookieUtils(cookie_list=self._session.cookies.items()).to_str()
+        self.set_cookies(spider_name=f"zhihu:{self._login_username}", cookies=request_cookie)
         response = self.make_request_with_session(
             session=self._session,
             url=self._personal_url,
@@ -222,6 +238,7 @@ class ZhiHuSpider(BaseSpider):
         if check_is_json(data=response.content.decode()):
             json_response = response.json()
             self._login_user_url_token = json_response["url_token"]
+            self.set_data(spider_name=f"{self._spider_name}:token", data=self._login_user_url_token)
 
             self._common_headers.update(Cookie=request_cookie)
             followee_response = self.make_request(
@@ -240,8 +257,10 @@ class ZhiHuSpider(BaseSpider):
                 "follower": json_response["follower_count"],
                 "likeBlogs": 0,
             }
-            # TODO 推送数据
+            # 推送数据
             logger.debug(personal_data)
+            self.data_model.set_personal_data(data=personal_data)
+            logger.info("查询 --> 获取个人数据成功!")
             self.parse_data_with_method(method=BaseSpiderParseMethodType.PersonalBlogs)
         else:
             logger.error("查询 --> 获取个人数据失败!")
@@ -280,12 +299,13 @@ class ZhiHuSpider(BaseSpider):
                 }
                 self._blogs_data.append(blog_data)
 
-            # TODO 推送数据
-            logger.debug(self._blogs_data)
-
             if json_response["paging"]["is_end"] is not True:
                 time.sleep(0.5)
                 self._parse_personal_blogs(next_params=json_response["paging"]["next"])
+            else:
+                logger.debug(self._blogs_data)
+                self.data_model.set_personal_blogs_data(data=self._blogs_data)
+                logger.info("获取个人博客数据成功!")
         else:
             logger.error("获取个人博客数据失败!")
             raise ParseDataException()
@@ -306,7 +326,10 @@ class ZhiHuSpider(BaseSpider):
             collections_id: List = []
             for collections in json_response["data"]:
                 collections_id.append(collections["id"])
-            if len(collections_id) > 0:
+            if len(collections_id) == 0:
+                logger.info("个人收藏博客获取完毕!数据为空!")
+                self.parse_data_with_method(method=BaseSpiderParseMethodType.Finish)
+            else:
                 # 用闭包进行爬取
                 def inner_spider(c_id: int, next_url: Optional[str] = None) -> bool:
                     req_params: str = "data[*].created,content.comment_count," \
@@ -376,8 +399,42 @@ class ZhiHuSpider(BaseSpider):
                     if is_continue is not True:
                         break
                 logger.info(f"个人收藏博客获取完毕!数据长度: {len(self._blogs_collection_data)}")
-            else:
-                logger.info("个人收藏博客获取完毕!数据为空!")
+                self.data_model.set_personal_like_blogs_data(data=self._blogs_collection_data)
+                self.parse_data_with_method(method=BaseSpiderParseMethodType.Finish)
         else:
             logger.error("获取个人收藏博客数据失败!")
             raise ParseDataException()
+
+    def _test_cookies(self, cookies: Optional[str] = None) -> bool:
+        params: str = "visits_count"
+        test_user_url: str = f"{self._main_url}/api/v4/me?include={params}"
+        test_request_headers: Dict = self.get_default_headers()
+        test_request_cookies = self._login_cookies
+        if cookies is not None:
+            test_request_cookies = cookies
+
+        if isinstance(test_request_cookies, dict):
+            test_request_headers.update(
+                Cookie=CookieUtils(cookie_list=test_request_cookies.items()).to_str()
+            )
+        elif isinstance(test_request_cookies, str):
+            test_request_headers.update(Cookie=test_request_cookies)
+        test_response = self.make_request(
+            url=test_user_url,
+            headers=test_request_headers,
+        )
+        if (
+            test_response.status_code != 200
+            or check_is_json(test_response.content.decode()) is not True
+        ):
+            logger.error(f"当前知乎登录状态: 已退出!")
+            self._async_task.remove_async_scheduler(job_id=self._spider_name)
+            return False
+
+        test_json_response = test_response.json()
+        if test_json_response.get("error"):
+            logger.error(f"当前知乎账号登录状态: 已退出!")
+            return False
+        else:
+            logger.info(f"当前知乎账号为: {self._login_username} 用户 ID: {test_json_response['id']}, 状态: 已登录")
+            return True
