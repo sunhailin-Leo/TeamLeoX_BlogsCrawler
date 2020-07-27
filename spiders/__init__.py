@@ -142,6 +142,9 @@ class BaseSpider:
     def remove_cookie_scheduler(self, spider_name: str):
         pass
 
+    def update_task_status(self, task_id: str, data: str) -> bool:
+        return self._redis_instance.insert_key(key=task_id, value=data)
+
 
 # 数据封装类
 class BlogsDataModel:
@@ -207,4 +210,4 @@ class BlogsDataModel:
         return True
 
     def push_data(self):
-        self._async_task.make_async_task(self._deal_data)
+        self._async_task.make_async_task_by_thread(self._deal_data)

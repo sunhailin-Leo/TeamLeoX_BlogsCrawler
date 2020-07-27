@@ -42,7 +42,9 @@ class ZhihuCaptcha:
     def __restore_session(checkpoint: str = checkpoint_dir):
         sess = tf.compat.v1.Session(config=config)
         sess.run(tf.compat.v1.global_variables_initializer())
-        saver = tf.compat.v1.train.Saver(tf.compat.v1.global_variables(), max_to_keep=100)
+        saver = tf.compat.v1.train.Saver(
+            tf.compat.v1.global_variables(), max_to_keep=100
+        )
         ckpt = tf.train.latest_checkpoint(checkpoint)
         if ckpt:
             # 回复权限，这里连 global_step 也会被加载进来

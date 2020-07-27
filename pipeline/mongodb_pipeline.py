@@ -5,10 +5,9 @@ from pymongo import MongoClient
 from pymongo.database import Database
 from pymongo.errors import BulkWriteError, ConnectionFailure
 
-from config import LOG_LEVEL
-from pipeline import MongoDBConfig
 from utils.decorator import synchronized
 from utils.logger_utils import LogManager
+from config import LOG_LEVEL, MongoDBConfig
 
 logger = LogManager(__name__).get_logger_and_add_handlers(
     formatter_template=5, log_level_int=LOG_LEVEL
@@ -103,7 +102,7 @@ class MongoDBHandler:
         col_show: Optional[Dict] = None,
         page: Optional[int] = None,
         page_size: Optional[int] = None,
-        data_id: Optional[str] = None
+        data_id: Optional[str] = None,
     ) -> Optional[List]:
         try:
             col_instance = self._mongo_db_client[col_name]
@@ -113,9 +112,13 @@ class MongoDBHandler:
             if data_id is not None:
                 query.update({"_id": ObjectId(data_id)})
 
-            if (page is not None and page_size is not None) and (page >= 0 and page_size >= 0):
+            if (page is not None and page_size is not None) and (
+                page >= 0 and page_size >= 0
+            ):
                 offset = page * page_size
-                return list(col_instance.find(query, col_show).limit(page_size).skip(offset))
+                return list(
+                    col_instance.find(query, col_show).limit(page_size).skip(offset)
+                )
 
             return list(col_instance.find(query, col_show))
         except Exception as err:
@@ -146,11 +149,7 @@ class MongoDBHandler:
             return False
 
     def upsert(
-        self,
-        col_name: str,
-        data: Dict,
-        *,
-        query: Optional[Dict] = None,
+        self, col_name: str, data: Dict, *, query: Optional[Dict] = None
     ) -> Optional[str]:
         try:
             if query is None:
@@ -173,11 +172,7 @@ class MongoDBHandler:
             return None
 
     def upsert_many(
-        self,
-        col_name: str,
-        data: List[Dict],
-        *,
-        query: Optional[Dict] = None,
+        self, col_name: str, data: List[Dict], *, query: Optional[Dict] = None
     ):
         try:
             if query is None:

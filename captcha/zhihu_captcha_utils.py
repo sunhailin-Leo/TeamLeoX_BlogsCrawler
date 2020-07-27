@@ -82,9 +82,7 @@ class DataIterator:
 
                 # image is named as /.../<folder>/00000_abcd.png
                 # code 是验证码
-                code = (
-                    image_name.split(os.sep)[-1].split("_")[1].split(".")[0]
-                )
+                code = image_name.split(os.sep)[-1].split("_")[1].split(".")[0]
                 # code转成[1,2,3,4] 字码列表
                 code = [
                     SPACE_INDEX if code == SPACE_TOKEN else encode_maps[c]
@@ -131,7 +129,9 @@ class DataIterator:
 
 
 # 对比解码得到的label和真实label，计算正确率
-def accuracy_calculation(original_seq, decoded_seq, ignore_value=-1, is_print: bool = False):
+def accuracy_calculation(
+    original_seq, decoded_seq, ignore_value=-1, is_print: bool = False
+):
     if len(original_seq) != len(decoded_seq):
         print("original lengths is different from the decoded_seq, please check again")
         return 0

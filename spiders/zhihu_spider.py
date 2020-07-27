@@ -4,10 +4,10 @@ from typing import Dict, List, Optional
 from urllib.parse import urlencode
 from requests_toolbelt import MultipartEncoder
 
-from config import LOG_LEVEL
 from utils.logger_utils import LogManager
 from utils.str_utils import check_is_json
 from captcha.zhihu_captcha import ZhihuCaptcha
+from config import LOG_LEVEL, PROCESS_STATUS_FAIL
 from utils.encrypt_utils import hmac_encrypt_sha1
 from utils.image_utils import image_base64_to_pillow
 from utils.js_utils import compile_js, zhihu_encrypt_js_code
@@ -21,7 +21,8 @@ logger = LogManager(__name__).get_logger_and_add_handlers(
 
 
 class ZhiHuSpider(BaseSpider):
-    def __init__(self, username: str, password: str):
+    def __init__(self, task_id: str, username: str, password: str):
+        self._task_id: str = task_id
         self._login_username: str = username
         self._login_password: str = password
 
@@ -99,7 +100,7 @@ class ZhiHuSpider(BaseSpider):
                     # 验证码识别
                     captcha_model = ZhihuCaptcha()
                     captcha_code = captcha_model.predict(
-                        img=image_base64_to_pillow(img_str=img_base64),
+                        img=image_base64_to_pillow(img_str=img_base64)
                     )
                     post_data: dict = {"input_text": captcha_code}
                     data = MultipartEncoder(
@@ -200,13 +201,21 @@ class ZhiHuSpider(BaseSpider):
                             raise LoginException()
                 else:
                     logger.error("登录 --> 获取登录后的用户信息失败!登录失败!")
+                    self.update_task_status(
+                        task_id=self._task_id, data=str(PROCESS_STATUS_FAIL)
+                    )
                     raise LoginException()
             else:
                 logger.error("登录 --> 失败")
+                self.update_task_status(
+                    task_id=self._task_id, data=str(PROCESS_STATUS_FAIL)
+                )
                 raise LoginException()
 
             if self._login_user_info is not None:
-                self.parse_data_with_method(method=BaseSpiderParseMethodType.LoginResult)
+                self.parse_data_with_method(
+                    method=BaseSpiderParseMethodType.LoginResult
+                )
             else:
                 logger.error("登录 --> 获取用户数据失败!")
                 raise LoginException()
@@ -214,31 +223,31 @@ class ZhiHuSpider(BaseSpider):
             # self._session.headers.update(self._common_headers)
             # self._session.cookies.update(self._login_cookies)
             self._common_headers.update(Cookie=self._login_cookies)
-            self._login_user_url_token = self.get_data(spider_name=f"{self._spider_name}:token")
+            self._login_user_url_token = self.get_data(
+                spider_name=f"{self._spider_name}:token"
+            )
             self.parse_data_with_method(method=BaseSpiderParseMethodType.LoginResult)
 
     def _parse_login_data(self):
-        include_params: str = "ad_type,available_message_types," \
-                              "default_notifications_count," \
-                              "follow_notifications_count," \
-                              "vote_thank_notifications_count," \
-                              "messages_count," \
-                              "email,account_status,is_bind_phone," \
-                              "visits_count,answer_count,articles_count," \
-                              "gender,follower_count"
+        include_params: str = "ad_type,available_message_types," "default_notifications_count," "follow_notifications_count," "vote_thank_notifications_count," "messages_count," "email,account_status,is_bind_phone," "visits_count,answer_count,articles_count," "gender,follower_count"
         self._personal_url: str = f"{self._main_url}/api/v4/me?include={include_params}"
         # 这个地方很重要
-        request_cookie: str = CookieUtils(cookie_list=self._session.cookies.items()).to_str()
-        self.set_cookies(spider_name=f"zhihu:{self._login_username}", cookies=request_cookie)
+        request_cookie: str = CookieUtils(
+            cookie_list=self._session.cookies.items()
+        ).to_str()
+        self.set_cookies(
+            spider_name=f"zhihu:{self._login_username}", cookies=request_cookie
+        )
         response = self.make_request_with_session(
-            session=self._session,
-            url=self._personal_url,
-            headers=self._common_headers,
+            session=self._session, url=self._personal_url, headers=self._common_headers
         )
         if check_is_json(data=response.content.decode()):
             json_response = response.json()
             self._login_user_url_token = json_response["url_token"]
-            self.set_data(spider_name=f"{self._spider_name}:token", data=self._login_user_url_token)
+            self.set_data(
+                spider_name=f"{self._spider_name}:token",
+                data=self._login_user_url_token,
+            )
 
             self._common_headers.update(Cookie=request_cookie)
             followee_response = self.make_request(
@@ -264,27 +273,20 @@ class ZhiHuSpider(BaseSpider):
             self.parse_data_with_method(method=BaseSpiderParseMethodType.PersonalBlogs)
         else:
             logger.error("查询 --> 获取个人数据失败!")
+            self.update_task_status(
+                task_id=self._task_id, data=str(PROCESS_STATUS_FAIL)
+            )
             raise ParseDataException(message="获取个人数据失败!")
 
     def _parse_personal_blogs(self, next_params: Optional[str] = None):
-        include_params: str = "data[*].comment_count,suggest_edit," \
-                              "is_normal,thumbnail_extra_info," \
-                              "thumbnail,can_comment,comment_permission," \
-                              "admin_closed_comment,content,voteup_count," \
-                              "created,updated,upvoted_followees,voting," \
-                              "review_info,is_labeled,label_info;" \
-                              "data[*].author.badge[?(type=best_answerer)].topics"
+        include_params: str = "data[*].comment_count,suggest_edit," "is_normal,thumbnail_extra_info," "thumbnail,can_comment,comment_permission," "admin_closed_comment,content,voteup_count," "created,updated,upvoted_followees,voting," "review_info,is_labeled,label_info;" "data[*].author.badge[?(type=best_answerer)].topics"
         if next_params is None:
-            self._blogs_url: str = \
-                f"{self._main_url}/api/v4/members/" \
-                f"{self._login_user_url_token}/articles?include={include_params}" \
-                f"&offset=0&limit=20&sort_by=created"
+            self._blogs_url: str = f"{self._main_url}/api/v4/members/" f"{self._login_user_url_token}/articles?include={include_params}" f"&offset=0&limit=20&sort_by=created"
         else:
             self._blogs_url = next_params
 
         response = self.make_request(
-            url=self._blogs_url,
-            headers=self.get_default_headers(),
+            url=self._blogs_url, headers=self.get_default_headers()
         )
         if check_is_json(response.content.decode()):
             json_response = response.json()
@@ -295,7 +297,9 @@ class ZhiHuSpider(BaseSpider):
                     "blogTitle": blogs["title"],
                     "blogHref": blogs["url"],
                     "blogViewers": blogs["voteup_count"],
-                    "blogCreateTime": timestamp_to_datetime_str(timestamp=blogs["created"]),
+                    "blogCreateTime": timestamp_to_datetime_str(
+                        timestamp=blogs["created"]
+                    ),
                 }
                 self._blogs_data.append(blog_data)
 
@@ -308,18 +312,16 @@ class ZhiHuSpider(BaseSpider):
                 logger.info("获取个人博客数据成功!")
         else:
             logger.error("获取个人博客数据失败!")
+            self.update_task_status(
+                task_id=self._task_id, data=str(PROCESS_STATUS_FAIL)
+            )
             raise ParseDataException()
 
     def _parse_personal_collect_blogs(self):
-        include_params: str = "data[*].updated_time,answer_count,follower_count," \
-                              "creator,description,is_following,comment_count,created_time"
-        self._collection_url: str = \
-            f"{self._main_url}/api/v4/people/" \
-            f"{self._login_user_url_token}/collections?include={include_params}" \
-            f"&offset=0&limit=20"
+        include_params: str = "data[*].updated_time,answer_count,follower_count," "creator,description,is_following,comment_count,created_time"
+        self._collection_url: str = f"{self._main_url}/api/v4/people/" f"{self._login_user_url_token}/collections?include={include_params}" f"&offset=0&limit=20"
         response = self.make_request(
-            url=self._collection_url,
-            headers=self.get_default_headers(),
+            url=self._collection_url, headers=self.get_default_headers()
         )
         if check_is_json(data=response.content.decode()):
             json_response = response.json()
@@ -332,32 +334,20 @@ class ZhiHuSpider(BaseSpider):
             else:
                 # 用闭包进行爬取
                 def inner_spider(c_id: int, next_url: Optional[str] = None) -> bool:
-                    req_params: str = "data[*].created,content.comment_count," \
-                                      "suggest_edit,is_normal,thumbnail_extra_info," \
-                                      "thumbnail,description,content,voteup_count," \
-                                      "created,updated,upvoted_followees,voting," \
-                                      "review_info,is_labeled,label_info," \
-                                      "relationship.is_authorized,voting,is_author," \
-                                      "is_thanked,is_nothelp,is_recognized;" \
-                                      "data[*].author.badge[?(type=best_answerer)].topics"
+                    req_params: str = "data[*].created,content.comment_count," "suggest_edit,is_normal,thumbnail_extra_info," "thumbnail,description,content,voteup_count," "created,updated,upvoted_followees,voting," "review_info,is_labeled,label_info," "relationship.is_authorized,voting,is_author," "is_thanked,is_nothelp,is_recognized;" "data[*].author.badge[?(type=best_answerer)].topics"
                     if next_url is None:
-                        collection_url: str = \
-                            f"{self._main_url}/api/v4/favlists/" \
-                            f"{c_id}/items?include={req_params}" \
-                            f"&offset=0&limit=20"
+                        collection_url: str = f"{self._main_url}/api/v4/favlists/" f"{c_id}/items?include={req_params}" f"&offset=0&limit=20"
                     else:
                         collection_url = next_url
 
                     inner_response = self.make_request(
-                        url=collection_url,
-                        headers=self.get_default_headers(),
+                        url=collection_url, headers=self.get_default_headers()
                     )
                     if check_is_json(data=inner_response.content.decode()):
                         inner_json_response = inner_response.json()
                         for data in inner_json_response["data"]:
                             create_time = datetime_str_change_fmt(
-                                time_str=data["created"],
-                                prev_fmt="%Y-%m-%dT%H:%M:%SZ",
+                                time_str=data["created"], prev_fmt="%Y-%m-%dT%H:%M:%SZ"
                             )
                             content = data["content"]
 
@@ -399,10 +389,15 @@ class ZhiHuSpider(BaseSpider):
                     if is_continue is not True:
                         break
                 logger.info(f"个人收藏博客获取完毕!数据长度: {len(self._blogs_collection_data)}")
-                self.data_model.set_personal_like_blogs_data(data=self._blogs_collection_data)
+                self.data_model.set_personal_like_blogs_data(
+                    data=self._blogs_collection_data
+                )
                 self.parse_data_with_method(method=BaseSpiderParseMethodType.Finish)
         else:
             logger.error("获取个人收藏博客数据失败!")
+            self.update_task_status(
+                task_id=self._task_id, data=str(PROCESS_STATUS_FAIL)
+            )
             raise ParseDataException()
 
     def _test_cookies(self, cookies: Optional[str] = None) -> bool:
@@ -420,8 +415,7 @@ class ZhiHuSpider(BaseSpider):
         elif isinstance(test_request_cookies, str):
             test_request_headers.update(Cookie=test_request_cookies)
         test_response = self.make_request(
-            url=test_user_url,
-            headers=test_request_headers,
+            url=test_user_url, headers=test_request_headers
         )
         if (
             test_response.status_code != 200
@@ -436,5 +430,7 @@ class ZhiHuSpider(BaseSpider):
             logger.error(f"当前知乎账号登录状态: 已退出!")
             return False
         else:
-            logger.info(f"当前知乎账号为: {self._login_username} 用户 ID: {test_json_response['id']}, 状态: 已登录")
+            logger.info(
+                f"当前知乎账号为: {self._login_username} 用户 ID: {test_json_response['id']}, 状态: 已登录"
+            )
             return True

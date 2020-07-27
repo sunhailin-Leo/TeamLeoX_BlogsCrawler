@@ -1,9 +1,9 @@
 import time
 from typing import Dict, List, Tuple, Optional
 
-from config import LOG_LEVEL
 from utils.logger_utils import LogManager
 from utils.str_utils import check_is_json
+from config import LOG_LEVEL, PROCESS_STATUS_FAIL
 from utils.time_utils import datetime_str_change_fmt
 from utils.exception_utils import LoginException, ParseDataException
 from spiders import BaseSpider, BaseSpiderParseMethodType, CookieUtils
@@ -15,11 +15,12 @@ logger = LogManager(__name__).get_logger_and_add_handlers(
 
 
 class JuejinSpider(BaseSpider):
-    def __init__(self, username: str, password: str):
+    def __init__(self, task_id: str, username: str, password: str):
         self._main_url = "https://juejin.im/auth/type"
         self._blogs_url = "https://timeline-merger-ms.juejin.im/v1/get_entry_by_self"
         self._like_blogs_url = "https://user-like-wrapper-ms.juejin.im/v1/user"
 
+        self._task_id = task_id
         self._login_username = username
         self._login_password = password
 
@@ -99,17 +100,29 @@ class JuejinSpider(BaseSpider):
         else:
             get_result: str = self.get_data(spider_name=f"{self._spider_name}:params")
             if get_result is None:
-                self.parse_data_with_method(method=BaseSpiderParseMethodType.LoginResult)
+                self.parse_data_with_method(
+                    method=BaseSpiderParseMethodType.LoginResult
+                )
             else:
                 try:
                     login_params = get_result.split("&")[1:-1]
-                    self._login_uid = [d for d in login_params if "uid" in d][0].replace("uid=", "")
-                    self._login_token = [d for d in login_params if "token" in d][0].replace("token=", "")
-                    self._login_client_id = [d for d in login_params if "device_id" in d][0].replace("device_id=", "")
-                    self.parse_data_with_method(method=BaseSpiderParseMethodType.PersonalBlogs)
+                    self._login_uid = [d for d in login_params if "uid" in d][
+                        0
+                    ].replace("uid=", "")
+                    self._login_token = [d for d in login_params if "token" in d][
+                        0
+                    ].replace("token=", "")
+                    self._login_client_id = [
+                        d for d in login_params if "device_id" in d
+                    ][0].replace("device_id=", "")
+                    self.parse_data_with_method(
+                        method=BaseSpiderParseMethodType.PersonalBlogs
+                    )
                 except Exception as err:
                     logger.error(f"解析 Redis 返回数据失败! 错误原因: {err}")
-                    self.parse_data_with_method(method=BaseSpiderParseMethodType.LoginResult)
+                    self.parse_data_with_method(
+                        method=BaseSpiderParseMethodType.LoginResult
+                    )
 
     def _parse_login_data(self):
         # 公共参数
@@ -118,10 +131,7 @@ class JuejinSpider(BaseSpider):
         self._login_client_id = self._response_data["clientId"]
 
         # 重要参数持久化
-        params: str = f"?src=web&uid={self._login_uid}" \
-                      f"&token={self._login_token}" \
-                      f"&device_id={self._login_client_id}" \
-                      f"&current_uid={self._login_uid}"
+        params: str = f"?src=web&uid={self._login_uid}" f"&token={self._login_token}" f"&device_id={self._login_client_id}" f"&current_uid={self._login_uid}"
         self.set_data(spider_name=f"{self._spider_name}:params", data=params)
 
         # 个人数据
@@ -197,6 +207,9 @@ class JuejinSpider(BaseSpider):
                     logger.info("获取个人博客数据成功!")
         else:
             logger.error("查询个人博客失败!")
+            self.update_task_status(
+                task_id=self._task_id, data=str(PROCESS_STATUS_FAIL)
+            )
             raise LoginException()
 
     def _parse_personal_like_blogs(self, page_no: int = 0):
@@ -258,6 +271,9 @@ class JuejinSpider(BaseSpider):
             self.parse_data_with_method(method=BaseSpiderParseMethodType.Finish)
         else:
             logger.error("查询个人点赞博客失败!")
+            self.update_task_status(
+                task_id=self._task_id, data=str(PROCESS_STATUS_FAIL)
+            )
             raise ParseDataException()
 
     def _test_cookies(self, cookies: Optional[str] = None) -> bool:
@@ -266,7 +282,9 @@ class JuejinSpider(BaseSpider):
             return False
         test_user_url: str = f"https://user-storage-api-ms.juejin.im/v1/getUserInfo{params}"
         test_request_headers: Dict = self.get_default_headers()
-        test_response = self.make_request(url=test_user_url, headers=test_request_headers)
+        test_response = self.make_request(
+            url=test_user_url, headers=test_request_headers
+        )
         if (
             test_response.status_code != 200
             or check_is_json(test_response.content.decode()) is not True

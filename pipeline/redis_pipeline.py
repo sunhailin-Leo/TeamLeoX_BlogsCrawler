@@ -3,10 +3,9 @@ from typing import Optional
 from redis import Redis, ConnectionPool
 from redis.exceptions import RedisError, ConnectionError
 
-from config import LOG_LEVEL
-from pipeline import RedisConfig
-from utils.logger_utils import LogManager
 from utils.decorator import synchronized
+from utils.logger_utils import LogManager
+from config import LOG_LEVEL, RedisConfig
 
 logger = LogManager(__name__).get_logger_and_add_handlers(
     formatter_template=5, log_level_int=LOG_LEVEL
@@ -68,7 +67,9 @@ class RedisPipelineHandler:
         instance = self.get_redis_instance()
         if instance is not None:
             try:
-                instance.set(name=key, value=value, ex=expire_seconds, px=expire_milliseconds)
+                instance.set(
+                    name=key, value=value, ex=expire_seconds, px=expire_milliseconds
+                )
                 return True
             except RedisError as err:
                 logger.error(err)

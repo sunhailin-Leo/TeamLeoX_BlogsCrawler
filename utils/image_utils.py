@@ -17,7 +17,7 @@ def open_image_from_base64(img_str: str, save_path: str = None):
     img = Image.open(image_data)
     if save_path is not None:
         if img.mode == "P":
-            img = img.convert('RGB')
+            img = img.convert("RGB")
         img.save(save_path)
     img.show()
     img.close()

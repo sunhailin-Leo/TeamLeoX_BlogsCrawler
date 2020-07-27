@@ -154,9 +154,7 @@ class LSTMOCR(object):
             self.logits, self.seq_len, merge_repeated=False
         )
         # 解码
-        self.dense_decoded = tf.sparse.to_dense(
-            self.decoded[0], default_value=-1
-        )
+        self.dense_decoded = tf.sparse.to_dense(self.decoded[0], default_value=-1)
 
     # 卷积
     @staticmethod

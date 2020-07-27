@@ -36,13 +36,12 @@ def handle_different_time_str(time_str: str) -> str:
     elif "今天" in time_str:
         return datetime_str_change_fmt(
             time_str=f"{datetime.now().strftime('%Y-%m-%d')} {time_str.split(' ')[-1]}",
-            prev_fmt="%Y-%m-%d %H:%M"
+            prev_fmt="%Y-%m-%d %H:%M",
         )
     elif "月" in time_str:
         year_str: int = datetime.now().year
         return datetime_str_change_fmt(
-            time_str=f"{year_str}年{time_str}",
-            prev_fmt="%Y年%m月%d日",
+            time_str=f"{year_str}年{time_str}", prev_fmt="%Y年%m月%d日"
         )
     else:
         return datetime_str_change_fmt(time_str=time_str, prev_fmt="%Y-%m-%d")

@@ -25,6 +25,9 @@
 * 2、数据存储:
     * Cookie 持久化
     * 个人数据的存储
+* 3、API 任务管理:
+    * FastAPI
+    * MultiProcessing.Queue
 
 ## ⛏ 代码质量
 

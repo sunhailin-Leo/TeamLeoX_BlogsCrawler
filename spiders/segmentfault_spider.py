@@ -4,8 +4,8 @@ from typing import Dict, List, Optional
 
 from lxml import etree
 
-from config import LOG_LEVEL
 from utils.logger_utils import LogManager
+from config import LOG_LEVEL, PROCESS_STATUS_FAIL
 from utils.time_utils import handle_different_time_str
 from utils.exception_utils import LoginException, ParseDataException
 from spiders import BaseSpider, BaseSpiderParseMethodType, CookieUtils
@@ -16,10 +16,13 @@ logger = LogManager(__name__).get_logger_and_add_handlers(
 
 
 class SegmentfaultSpider(BaseSpider):
-    def __init__(self, username: str, password: str):
+    def __init__(self, task_id: str, username: str, password: str):
         self._main_url = "https://segmentfault.com"
+
+        self._task_id = task_id
         self._login_username = username
         self._login_password = password
+
         self._spider_name: str = f"segmentfault:{self._login_username}"
 
         self._cookies: Optional[str] = None
@@ -27,7 +30,9 @@ class SegmentfaultSpider(BaseSpider):
         super().__init__()
 
         self._cookies = self.get_cookies(spider_name=self._spider_name)
-        self._user_url: Optional[str] = self.get_data(spider_name=f"{self._spider_name}:user_url")
+        self._user_url: Optional[str] = self.get_data(
+            spider_name=f"{self._spider_name}:user_url"
+        )
         self._blogs_data: List = []
 
     @staticmethod
@@ -43,7 +48,7 @@ class SegmentfaultSpider(BaseSpider):
 
             if filter_list:
                 for m, n in filter_list:
-                    ret = ret[: int(m)] + ret[int(n):]
+                    ret = ret[: int(m)] + ret[int(n) :]
             if len(ret) == 32:
                 return ret
             else:
@@ -72,6 +77,9 @@ class SegmentfaultSpider(BaseSpider):
         if self._cookies is None:
             token = self._get_token(url=self._main_url)
             if token is None:
+                self.update_task_status(
+                    task_id=self._task_id, data=str(PROCESS_STATUS_FAIL)
+                )
                 raise LoginException()
             login_params: str = f"_={token}"
             login_url = f"{self._main_url}/api/user/login?{login_params}"
@@ -116,11 +124,20 @@ class SegmentfaultSpider(BaseSpider):
                         )
                     else:
                         logger.error("获取个人页面链接失败!")
+                        self.update_task_status(
+                            task_id=self._task_id, data=str(PROCESS_STATUS_FAIL)
+                        )
                         raise LoginException()
                 else:
+                    self.update_task_status(
+                        task_id=self._task_id, data=str(PROCESS_STATUS_FAIL)
+                    )
                     raise LoginException()
             else:
                 self._cookies = None
+                self.update_task_status(
+                    task_id=self._task_id, data=str(PROCESS_STATUS_FAIL)
+                )
                 raise LoginException()
         else:
             self._common_headers.update(
@@ -177,9 +194,15 @@ class SegmentfaultSpider(BaseSpider):
                 )
             except IndexError:
                 logger.error("解析个人主页数据失败!")
+                self.update_task_status(
+                    task_id=self._task_id, data=str(PROCESS_STATUS_FAIL)
+                )
                 raise ParseDataException()
         else:
             logger.error("打开个人主页失败!")
+            self.update_task_status(
+                task_id=self._task_id, data=str(PROCESS_STATUS_FAIL)
+            )
             raise LoginException()
 
     def _parse_personal_blogs(self, next_params: Optional[int] = None):
@@ -234,9 +257,15 @@ class SegmentfaultSpider(BaseSpider):
                 self.parse_data_with_method(method=BaseSpiderParseMethodType.Finish)
             except (IndexError, Exception):
                 logger.error("解析个人博客数据异常!")
+                self.update_task_status(
+                    task_id=self._task_id, data=str(PROCESS_STATUS_FAIL)
+                )
                 raise ParseDataException()
         else:
             logger.error("获取个人博客数据失败!")
+            self.update_task_status(
+                task_id=self._task_id, data=str(PROCESS_STATUS_FAIL)
+            )
             raise LoginException()
 
     def _test_cookies(self, cookies: Optional[str] = None) -> bool:
@@ -246,13 +275,17 @@ class SegmentfaultSpider(BaseSpider):
         test_request_cookies = self._cookies
         if cookies is not None:
             test_request_cookies = cookies
-        test_request_headers.update({
-            "cookie": test_request_cookies,
-            "origin": self._main_url,
-            "referer": self._main_url + "/",
-            "x-requested-with": "XMLHttpRequest",
-        })
-        test_response = self.make_request(url=test_user_url, headers=test_request_headers)
+        test_request_headers.update(
+            {
+                "cookie": test_request_cookies,
+                "origin": self._main_url,
+                "referer": self._main_url + "/",
+                "x-requested-with": "XMLHttpRequest",
+            }
+        )
+        test_response = self.make_request(
+            url=test_user_url, headers=test_request_headers
+        )
         selector = etree.HTML(test_response.content.decode())
         title = "".join(selector.xpath("//title/text()"))
         if "登录" not in title:

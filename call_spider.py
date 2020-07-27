@@ -1,49 +1,96 @@
-from spiders.juejin_spider import JuejinSpider
-from spiders.zhihu_spider import ZhiHuSpider
-from spiders.segmentfault_spider import SegmentfaultSpider
+import time
+from typing import Dict
+from multiprocessing import Queue
+
+from utils.logger_utils import LogManager
 from spiders.csdn_spider import CSDNSpider
+from spiders.zhihu_spider import ZhiHuSpider
+from spiders.juejin_spider import JuejinSpider
+from spiders.segmentfault_spider import SegmentfaultSpider
+from utils.async_task_utils import MultiProcessQueue
+from pipeline.redis_pipeline import RedisPipelineHandler
+from config import (
+    LOG_LEVEL,
+    PROCESS_STATUS_FAIL,
+    PROCESS_STATUS_START,
+    PROCESS_STATUS_RUNNING,
+)
+
+logger = LogManager(__name__).get_logger_and_add_handlers(
+    formatter_template=5, log_level_int=LOG_LEVEL
+)
+
+# 多进程任务队列
+message_queue: Queue = MultiProcessQueue()
+# Redis
+redis_task_key_prefix: str = "spider_task"
+redis_handler = RedisPipelineHandler()
 
 
-TEST_USERNAME: str = "<用户名>"
-TEST_PASSWORD: str = "<密码>"
-
-
-def call_juejin_spider():
-    t = JuejinSpider(username=TEST_USERNAME, password=TEST_PASSWORD)
+def _call_juejin_spider(task_id: str, username: str, password: str):
+    task_redis_key: str = f"{redis_task_key_prefix}:{task_id}"
+    t = JuejinSpider(task_id=task_id, username=username, password=password)
     t.login()
+    redis_handler.insert_key(key=task_redis_key, value=str(PROCESS_STATUS_RUNNING))
 
 
-def call_zhihu_spider():
-    zhihu = ZhiHuSpider(username=TEST_USERNAME, password=TEST_PASSWORD)
+def _call_zhihu_spider(task_id: str, username: str, password: str):
+    task_redis_key: str = f"{redis_task_key_prefix}:{task_id}"
+    zhihu = ZhiHuSpider(task_id=task_id, username=username, password=password)
     zhihu.login()
+    redis_handler.insert_key(key=task_redis_key, value=str(PROCESS_STATUS_RUNNING))
 
 
-def call_segmentfault_spider():
-    seg = SegmentfaultSpider(username=TEST_USERNAME, password=TEST_PASSWORD)
+def _call_segmentfault_spider(task_id: str, username: str, password: str):
+    task_redis_key: str = f"{redis_task_key_prefix}:{task_id}"
+    seg = SegmentfaultSpider(task_id=task_id, username=username, password=password)
     seg.login()
+    redis_handler.insert_key(key=task_redis_key, value=str(PROCESS_STATUS_RUNNING))
 
 
-def call_csdn_spider():
-    csdn = CSDNSpider(username=TEST_USERNAME, password=TEST_PASSWORD)
+def _call_csdn_spider(task_id: str, username: str, password: str):
+    task_redis_key: str = f"{redis_task_key_prefix}:{task_id}"
+    csdn = CSDNSpider(username=username, password=password)
     csdn.login()
+    redis_handler.insert_key(key=task_redis_key, value=str(PROCESS_STATUS_RUNNING))
 
 
-if __name__ == '__main__':
-    import time
+def task_parser(task_dict: Dict):
+    task_id: str = task_dict["taskId"]
+    spider_name: str = task_dict["spider"]
+    username: str = task_dict["username"]
+    password: str = task_dict["password"]
 
-    # TODO LIST
-    """
-    1、将目前这个 TODO LIST 之外的 TODO 工作完成。
-    2、编写一个任务接收器。
-    3、利用多进程去启动下面的爬虫，而不使用线程。因为会导致线程嵌套，给 debug 带来影响。
-    4、设计一个高层的 API 将整个爬虫的调用更加简单。
-    5、利用 Flask 或者 fastapi 设计 Restful 接口对接前端进行数据查询。
-    6、完善测试用例
-    """
+    if spider_name == "csdn":
+        redis_handler.insert_key(
+            key=f"{redis_task_key_prefix}:{task_id}", value=str(PROCESS_STATUS_START)
+        )
+        _call_csdn_spider(task_id=task_id, username=username, password=password)
+    elif spider_name == "zhihu":
+        redis_handler.insert_key(
+            key=f"{redis_task_key_prefix}:{task_id}", value=str(PROCESS_STATUS_START)
+        )
+        _call_zhihu_spider(task_id=task_id, username=username, password=password)
+    elif spider_name == "juejin":
+        redis_handler.insert_key(
+            key=f"{redis_task_key_prefix}:{task_id}", value=str(PROCESS_STATUS_START)
+        )
+        _call_juejin_spider(task_id=task_id, username=username, password=password)
+    elif spider_name == "segmentfault":
+        redis_handler.insert_key(
+            key=f"{redis_task_key_prefix}:{task_id}", value=str(PROCESS_STATUS_START)
+        )
+        _call_segmentfault_spider(task_id=task_id, username=username, password=password)
+    else:
+        redis_handler.insert_key(
+            key=f"{redis_task_key_prefix}:{task_id}", value=str(PROCESS_STATUS_FAIL)
+        )
+        logger.error(f"任务ID: {task_id}, 创建失败! 错误原因: 爬虫名称错误!")
 
-    call_juejin_spider()
-    # call_zhihu_spider()
-    # call_segmentfault_spider()
-    # call_csdn_spider()
+
+def spider_task_receiver():
     while True:
-        time.sleep(2)
+        task = message_queue.get()
+        logger.info(f"接收到的任务数据: {task}")
+        task_parser(task_dict=task)
+        time.sleep(1)

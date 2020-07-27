@@ -3,9 +3,9 @@ import time
 import random
 from typing import Dict, List, Optional
 
-from config import LOG_LEVEL
 from utils.logger_utils import LogManager
 from utils.str_utils import check_is_json
+from config import LOG_LEVEL, PROCESS_STATUS_FAIL
 from utils.time_utils import datetime_str_change_fmt
 from utils.encrypt_utils import hmac_encrypt_sha256_base64
 from utils.exception_utils import LoginException, ParseDataException
@@ -98,7 +98,8 @@ LOGIN_DATA_WEB_UMID_TOKEN: str = "T1FE96933802C3FDF25B8F260ED7E83A847014FDE2B370
 
 
 class CSDNSpider(BaseSpider):
-    def __init__(self, username: str, password: str):
+    def __init__(self, task_id: str, username: str, password: str):
+        self._task_id = task_id
         self._login_username = username
         self._login_password = password
 
@@ -191,11 +192,18 @@ class CSDNSpider(BaseSpider):
                 self._login_cookies = CookieUtils(
                     cookie_list=login_response.cookies.items()
                 ).to_str()
-                self.set_cookies(spider_name=self._spider_name, cookies=self._login_cookies)
+                self.set_cookies(
+                    spider_name=self._spider_name, cookies=self._login_cookies
+                )
                 self._request_headers.update(Cookie=self._login_cookies)
-                self.parse_data_with_method(method=BaseSpiderParseMethodType.LoginResult)
+                self.parse_data_with_method(
+                    method=BaseSpiderParseMethodType.LoginResult
+                )
             else:
                 logger.error(f"登录 --> 登录异常!返回结果: {login_json_response}")
+                self.update_task_status(
+                    task_id=self._task_id, data=str(PROCESS_STATUS_FAIL)
+                )
                 raise LoginException()
         else:
             self._request_headers.update(Cookie=self._login_cookies)
@@ -215,11 +223,17 @@ class CSDNSpider(BaseSpider):
             or check_is_json(data=personal_data_response.content.decode()) is not True
         ):
             logger.error("获取个人数据异常!")
+            self.update_task_status(
+                task_id=self._task_id, data=str(PROCESS_STATUS_FAIL)
+            )
             raise LoginException()
 
         personal_data_json = personal_data_response.json()
         if personal_data_json["message"] != "成功":
             logger.error("获取个人数据失败!")
+            self.update_task_status(
+                task_id=self._task_id, data=str(PROCESS_STATUS_FAIL)
+            )
             raise ParseDataException()
 
         data = personal_data_json["data"]
@@ -243,6 +257,9 @@ class CSDNSpider(BaseSpider):
             or check_is_json(data=follower_response.content.decode()) is not True
         ):
             logger.error("获取个人关注数据异常!")
+            self.update_task_status(
+                task_id=self._task_id, data=str(PROCESS_STATUS_FAIL)
+            )
             raise ParseDataException()
 
         follower_json_response = follower_response.json()
@@ -261,6 +278,9 @@ class CSDNSpider(BaseSpider):
             or check_is_json(collections_response.content.decode()) is not True
         ):
             logger.error("获取个人收藏数据异常!")
+            self.update_task_status(
+                task_id=self._task_id, data=str(PROCESS_STATUS_FAIL)
+            )
             raise ParseDataException()
 
         collection_json_response = collections_response.json()
@@ -293,41 +313,48 @@ class CSDNSpider(BaseSpider):
         nonce: str = ""
         for nonce_char in self._api_nonce_template:
             n = int(16 * random.random()) | 0
-            nonce += hex(n if n == 3 else n | 8)[2:] if nonce_char in "xy" else nonce_char
+            nonce += (
+                hex(n if n == 3 else n | 8)[2:] if nonce_char in "xy" else nonce_char
+            )
 
         # 生成 x-ca-signature
-        encrypt_str: str = f"GET\napplication/json, text/plain, */*\n\n\n\n" \
-                           f"x-ca-key:{self._api_key}\nx-ca-nonce:{nonce}\n{api_suffix}"
+        encrypt_str: str = f"GET\napplication/json, text/plain, */*\n\n\n\n" f"x-ca-key:{self._api_key}\nx-ca-nonce:{nonce}\n{api_suffix}"
         signature = hmac_encrypt_sha256_base64(
-            key=self._api_encrypt_key,
-            encrypt_str=encrypt_str,
+            key=self._api_encrypt_key, encrypt_str=encrypt_str
         )
         api_headers: Dict = self.get_default_headers()
-        api_headers.update({
-            "Cookie": self._login_cookies,
-            "x-ca-key": self._api_key,
-            "x-ca-nonce": nonce,
-            "x-ca-signature": signature,
-            "x-ca-signature-headers": "x-ca-key,x-ca-nonce",
-            "origin": "https://mp.csdn.net",
-            "referer": "https://mp.csdn.net/console/article",
-            "accept": "application/json, text/plain, */*"
-        })
+        api_headers.update(
+            {
+                "Cookie": self._login_cookies,
+                "x-ca-key": self._api_key,
+                "x-ca-nonce": nonce,
+                "x-ca-signature": signature,
+                "x-ca-signature-headers": "x-ca-key,x-ca-nonce",
+                "origin": "https://mp.csdn.net",
+                "referer": "https://mp.csdn.net/console/article",
+                "accept": "application/json, text/plain, */*",
+            }
+        )
         api_response = self.make_request(
-            url=f"{api_main_url}{api_suffix}",
-            headers=api_headers,
+            url=f"{api_main_url}{api_suffix}", headers=api_headers
         )
 
         if (
             api_response.status_code != 200
-                or check_is_json(data=api_response.content.decode()) is not True
+            or check_is_json(data=api_response.content.decode()) is not True
         ):
             logger.error("获取个人博客数据失败!")
+            self.update_task_status(
+                task_id=self._task_id, data=str(PROCESS_STATUS_FAIL)
+            )
             raise ParseDataException()
 
         api_json_response = api_response.json()
         if api_json_response["msg"] != "success":
             logger.error("获取个人博客数据失败!")
+            self.update_task_status(
+                task_id=self._task_id, data=str(PROCESS_STATUS_FAIL)
+            )
             raise ParseDataException()
 
         blogs_list_data = api_json_response["data"]["list"]
@@ -337,8 +364,7 @@ class CSDNSpider(BaseSpider):
                 blog_id: str = blogs["ArticleId"]
                 blog_href: str = f"{self._blog_main_url}/{self._username}/article/details/{blog_id}"
                 blog_create_time = datetime_str_change_fmt(
-                    time_str=blogs["PostTime"],
-                    prev_fmt="%Y年%m月%d日 %H:%M:%S",
+                    time_str=blogs["PostTime"], prev_fmt="%Y年%m月%d日 %H:%M:%S"
                 )
 
                 blog_data: Dict = {
@@ -367,8 +393,7 @@ class CSDNSpider(BaseSpider):
             for collection_id in self._personal_collection_ids:
                 # 用闭包去获取每个有数据的收藏夹的文章数据
                 def inner_spider(c_id: int, page_no: int = 1):
-                    like_blogs_url: str = f"{self._personal_main_url}/api/favorite/listByFolder?" \
-                                          f"folderID={c_id}&page={page_no}&pageSize=10&sources="
+                    like_blogs_url: str = f"{self._personal_main_url}/api/favorite/listByFolder?" f"folderID={c_id}&page={page_no}&pageSize=10&sources="
                     inner_response = self.make_request(
                         url=like_blogs_url, headers=self._request_headers
                     )
@@ -419,9 +444,7 @@ class CSDNSpider(BaseSpider):
         if cookies is not None:
             test_request_cookies = cookies
         test_request_headers.update(Cookie=test_request_cookies)
-        test_response = self.make_request(
-            url=test_url, headers=test_request_headers,
-        )
+        test_response = self.make_request(url=test_url, headers=test_request_headers)
         if (
             test_response.status_code != 200
             or check_is_json(test_response.content.decode()) is not True
