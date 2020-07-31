@@ -13,6 +13,18 @@
 * 尽可能多的获取个人博客数据。
 * 开发尽可能多且主流的博客爬虫。
 
+## 💻 项目部署
+
+* 源码部署:
+    * 安装项目必要的依赖包 (Linux/Unix:`pip3 install -r requirements.txt` or Windows: `pip install -r requirements.txt`)
+    * 安装完后启动 `api_server.py` 即 ==> (Linux/Unix:`python3 api_server.py` or Windows: `python api_server.py`)
+
+* Dockerfile 部署:
+    * 克隆源码后修改 `config.py` 中的配置后，进行镜像打包
+
+* Docker-compose:
+    * 使用项目根目录下的 `docker-compose.yml` 进行安装
+
 ## 📖 项目进度
 
 * **项目目前主要的开发在集中在 dev 分支上, 在项目最终评审之前将会合并到 master 分支上**
@@ -28,6 +40,15 @@
 * 3、API 任务管理:
     * FastAPI
     * MultiProcessing.Queue
+    
+## 📖 API 文档
+
+| 接口名称 | 接口路径 | 请求方式 | 请求参数
+| ---- | ---- | ---- | ---- |
+| 创建任务 | /api/v1/task/create | POST | {"taskType": "create", "taskArgs": {"spiderName": <爬虫名称>, "username": <用户名>, "password": <密码>}} |
+| 查看任务状态 | /api/v1/task/checkTaskStatus | POST | {"taskType": "check": taskArgs": {"job_id": <创建任务接口返回的任务 ID>}} |
+| 获取任务结果 | /api/v1/task/taskResult | POST | {"taskType": "getResult", "taskArgs": {"job_id": <创建任务接口返回的任务 ID>}} |
+
 
 ## ⛏ 代码质量
 

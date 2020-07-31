@@ -1,0 +1,36 @@
+version: "3.6"
+
+services:
+  web:
+    links:
+      - mongo
+      - redis
+    depends_on:
+      - mongo
+      - redis
+    build:
+      dockerfile: Dockerfile
+    ports:
+      - "12580:12580"
+    restart: always
+
+  mongo:
+    image: mongo:4.1.3
+    restart: always
+    environment:
+      # 配置 MongoDB 的用户名密码
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: 123456
+    ports:
+      # 需要去 config.py 配置 MongoDB 的连接地址和端口
+      - "27017:27017"
+
+  redis:
+    image: redis:4.0.11
+    restart: always
+    ports:
+      # 需要去 config.py 配置 Redis 的连接地址和端口
+      - "6379:6379"
+    # 如果需要挂载配置，请自行添加 volumns 配置
+    command:
+      redis-server

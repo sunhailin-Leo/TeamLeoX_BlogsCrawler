@@ -4,7 +4,7 @@ from typing import Dict, List
 LOG_LEVEL: int = 10
 
 # API Server 配置
-SERVER_HOST: str = "127.0.0.1"
+SERVER_HOST: str = "0.0.0.0"
 SERVER_PORT: int = 12580
 
 # 数据库配置
