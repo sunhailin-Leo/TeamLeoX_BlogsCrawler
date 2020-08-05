@@ -2,18 +2,20 @@ import time
 from typing import Dict, List, Optional
 
 from urllib.parse import urlencode
+from requests.utils import dict_from_cookiejar
 from requests_toolbelt import MultipartEncoder
 
+from utils.encrypt_utils import md5_str
 from utils.logger_utils import LogManager
 from utils.str_utils import check_is_json
 from captcha.zhihu_captcha import ZhihuCaptcha
 from config import LOG_LEVEL, PROCESS_STATUS_FAIL
 from utils.encrypt_utils import hmac_encrypt_sha1
 from utils.image_utils import image_base64_to_pillow
-from utils.js_utils import compile_js, zhihu_encrypt_js_code
 from utils.exception_utils import LoginException, ParseDataException
 from spiders import BaseSpider, BaseSpiderParseMethodType, CookieUtils
 from utils.time_utils import datetime_str_change_fmt, timestamp_to_datetime_str
+from utils.js_utils import compile_js, zhihu_encrypt_js_code, zhihu_zse86_js_code
 
 logger = LogManager(__name__).get_logger_and_add_handlers(
     formatter_template=5, log_level_int=LOG_LEVEL
@@ -248,12 +250,47 @@ class ZhiHuSpider(BaseSpider):
                 spider_name=f"{self._spider_name}:token",
                 data=self._login_user_url_token,
             )
-
             self._common_headers.update(Cookie=request_cookie)
-            followee_response = self.make_request(
-                url=f"{self._main_url}/api/v4/members/{self._login_user_url_token}/followees",
-                headers=self.get_default_headers(),
+
+            # 知乎神奇的参数
+            # TODO 知乎把 API 的请求又进行了加密，导致下面的 API 又用不了了，待解决
+            resp1 = self._session.get('https://www.zhihu.com', headers=self.get_default_headers())
+            d_c0 = resp1.cookies['d_c0']
+
+            headers = self.get_default_headers()
+            search_api: str = f"/api/v4/members/{self._login_user_url_token}/followees"
+            req_url: str = f"{self._main_url}{search_api}"
+            f = "+".join(
+                (
+                    "3_2.0",
+                    search_api,
+                    req_url,
+                    d_c0,
+                )
             )
+
+            js_code = compile_js(js_str=zhihu_zse86_js_code)
+            sign = js_code.call("b", md5_str(encrypt_str=f))
+
+            headers.update(
+                {
+                    "content-type": "application/json",
+                    "accept": "*/*",
+                    "accept-language": "zh-CN,zh;q=0.9,en;q=0.8",
+                    "cache-control": "no-cache, no-store, must-revalidate, private, max-age=0",
+                    "pragma": "no-cache",
+                    "sec-fetch-dest": "empty",
+                    "sec-fetch-mode": "navigate",
+                    "sec-fetch-site": "same-origin",
+                    "cookie": f"d_c0={d_c0}",
+                    "x-api-version": "3.0.91",
+                    "x-app-za": "OS=Web",
+                    "x-requested-with": "fetch",
+                    "x-zse-83": "3_2.0",
+                    "x-zse-86": f"1.0_{sign}",
+                }
+            )
+            followee_response = self.make_request(url=req_url, headers=headers)
             followee_count: int = 0
             if check_is_json(data=followee_response.text):
                 followee_count = followee_response.json()["paging"]["totals"]

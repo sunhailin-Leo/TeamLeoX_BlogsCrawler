@@ -3,6 +3,9 @@ from typing import Dict, List
 # 日志等级
 LOG_LEVEL: int = 10
 
+# 设置 NPM 的路径
+NPM_ROOT_PATH: str = "/usr/local/lib/node_modules"
+
 # API Server 配置
 SERVER_HOST: str = "0.0.0.0"
 SERVER_PORT: int = 12580

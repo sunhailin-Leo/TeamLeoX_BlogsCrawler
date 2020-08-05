@@ -50,7 +50,7 @@ def _call_segmentfault_spider(task_id: str, username: str, password: str):
 
 def _call_csdn_spider(task_id: str, username: str, password: str):
     task_redis_key: str = f"{redis_task_key_prefix}:{task_id}"
-    csdn = CSDNSpider(username=username, password=password)
+    csdn = CSDNSpider(task_id=task_id, username=username, password=password)
     csdn.login()
     redis_handler.insert_key(key=task_redis_key, value=str(PROCESS_STATUS_RUNNING))
 

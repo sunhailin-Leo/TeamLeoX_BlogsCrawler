@@ -143,7 +143,7 @@ class BaseSpider:
         pass
 
     def update_task_status(self, task_id: str, data: str) -> bool:
-        return self._redis_instance.insert_key(key=task_id, value=data)
+        return self._redis_instance.insert_key(key=f"spider_task:{task_id}", value=data)
 
 
 # 数据封装类

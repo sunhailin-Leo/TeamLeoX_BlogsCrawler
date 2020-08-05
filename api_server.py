@@ -139,7 +139,7 @@ def create_task(request: Request, task: TaskRequest, background_task: Background
     )
 
     task_result = app_redis_handler.find_key(key=f"spider_task:{task_id}")
-    if task_result is not None and task_result == str(PROCESS_STATUS_FAIL):
+    if task_result is None or task_result == str(PROCESS_STATUS_FAIL):
         # 通过 BackgroundTask 提交异步任务
         background_task.add_task(
             submit_async_task, task_id, spider_name, spider_username, spider_password

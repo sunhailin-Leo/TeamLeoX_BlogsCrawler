@@ -15,6 +15,10 @@
 
 ## 💻 项目部署
 
+* 环境配置:
+    * 配置文件在项目根目录下的 `config.py` 下
+    * 由于用到了 `PyExecJS` 因此需要一套 NPM 的环境（版本不限），但需要安装一个库 `npm i jsdom -g` 或者使用 `cnpm i jsdom -g` (需提前安装 `cnpm`)
+
 * 源码部署:
     * 安装项目必要的依赖包 (Linux/Unix:`pip3 install -r requirements.txt` or Windows: `pip install -r requirements.txt`)
     * 安装完后启动 `api_server.py` 即 ==> (Linux/Unix:`python3 api_server.py` or Windows: `python api_server.py`)
